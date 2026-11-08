@@ -9,18 +9,22 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.ghostbroot.app.ui.PanelView
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Connection screen (spec §4):
  * server state, local address, port, auth state, token, Termux detection,
  * copy-to-clipboard. Manual config only — no auto-discovery required.
+ *
+ * The screen probes GET /api/v1/status after (re)starting so the user gets
+ * immediate feedback: "Server: RUNNING" or the last error.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -29,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tokenText: TextView
     private var token: String = ""
     private var port: Int = GhostService.DEFAULT_PORT
+    private var polling = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,6 +91,10 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { stopServer() }
         })
         root.addView(Button(this).apply {
+            text = "Test API"
+            setOnClickListener { probeAsync("Manual test") }
+        })
+        root.addView(Button(this).apply {
             text = "Regenerate token"
             setOnClickListener {
                 token = TokenStore.regenerate(this@MainActivity)
@@ -102,17 +111,60 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startServer() {
+        stateText.text = "Starting server..."
         val intent = Intent(this, GhostService::class.java)
             .setAction(GhostService.ACTION_START)
             .putExtra(GhostService.EXTRA_TOKEN, token)
             .putExtra(GhostService.EXTRA_PORT, port)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
-        refresh()
+        probeAsync("Start")
     }
 
     private fun stopServer() {
         startService(Intent(this, GhostService::class.java).setAction(GhostService.ACTION_STOP))
+        stateText.text = "Server: stopped"
         refresh()
+    }
+
+    /**
+     * Probes GET /api/v1/status from the app itself (no curl needed) and
+     * updates the screen. Runs off the UI thread; safe to call repeatedly.
+     */
+    private fun probeAsync(reason: String) {
+        if (polling) return
+        polling = true
+        Thread {
+            var lastMsg = "no response"
+            for (attempt in 1..3) {
+                try {
+                    val conn = (URL("http://127.0.0.1:$port/api/v1/status").openConnection()) as HttpURLConnection
+                    conn.connectTimeout = 1500
+                    conn.readTimeout = 1500
+                    val code = conn.responseCode
+                    if (code == 200) {
+                        val body = conn.inputStream.bufferedReader().use { it.readText() }
+                        val boundPort = org.json.JSONObject(body).optInt("port", port)
+                        runOnUiThread {
+                            port = boundPort
+                            stateText.text = "Server: RUNNING (port $boundPort)"
+                            refresh()
+                        }
+                        polling = false
+                        return@Thread
+                    }
+                    lastMsg = "HTTP $code"
+                } catch (e: Exception) {
+                    lastMsg = "${e.javaClass.simpleName}: ${e.message}"
+                }
+                Thread.sleep(800)
+            }
+            val msg = lastMsg
+            runOnUiThread {
+                stateText.text = "Server: NOT responding ($reason) - $msg\nForce-stop the app (Settings > Apps > GhostbRoot > Force stop), then tap Start again."
+                refresh()
+            }
+            polling = false
+        }.apply { isDaemon = true }.start()
     }
 
     private fun requestOverlayPermission() {
@@ -130,7 +182,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        stateText.text = "Server: ready to start (port $port)"
+        val running = stateText.text.toString().contains("RUNNING")
+        if (!running && !stateText.text.toString().contains("NOT responding"))
+            stateText.text = "Server: ready to start (port $port)"
         val termux = if (TermuxDetect.isTermuxPresent()) "detected" else "not detected on this device"
         infoText.text = "host: 127.0.0.1\nport: $port\nauth: token required\ntermux: $termux\n" +
             "python: ${TermuxDetect.termuxPath()}"

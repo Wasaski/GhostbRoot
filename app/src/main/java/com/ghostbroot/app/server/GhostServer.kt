@@ -3,16 +3,23 @@ package com.ghostbroot.app.server
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.PrintWriter
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.concurrent.Executors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Loopback-only HTTP + WebSocket server (spec §2).
  * Binds 127.0.0.1 exclusively — never exposed to the LAN (spec §2).
  * All routes except /api/v1/status require the session token.
+ *
+ * Robustness: if the requested port is already taken, tries the next
+ * ports (port..port+20). Every bind, accepted connection and exception is
+ * recorded in [lastLog] (also returned from /api/v1/status) so failures
+ * are visible instead of silent.
  */
 class GhostServer(
     private val port: Int = 8765,
@@ -22,29 +29,56 @@ class GhostServer(
     @Volatile var running = false
         private set
 
-    private var serverSocket: ServerSocket? = null
-    private val pool = Executors.newCachedThreadPool { r -> Thread(r, "ghost-http").apply { isDaemon = true } }
+    @Volatile var boundPort: Int = port
+        private set
 
+    private var serverSocket: ServerSocket? = null
+    private val logQueue = ConcurrentLinkedQueue<String>()
+
+    fun log(msg: String) {
+        val ts = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        logQueue.add("[$ts] $msg")
+        while (logQueue.size > 60) logQueue.poll()
+    }
+
+    fun lastLog(): String = logQueue.joinToString("\n")
+
+    /** Starts the server; returns the bound port (may differ from [port] if busy). */
     fun start(): Int {
-        if (running) return serverSocket?.localPort ?: port
-        val ss = ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
-        serverSocket = ss
-        running = true
-        Thread({
-            while (running && !ss.isClosed) {
-                try {
-                    val client = ss.accept()
-                    pool.execute { handle(client) }
-                } catch (_: Exception) { if (!running) break }
+        if (running) return boundPort
+        var lastError: Exception? = null
+        for (candidate in port..(port + 20)) {
+            try {
+                val ss = ServerSocket(candidate, 50, InetAddress.getByName("127.0.0.1"))
+                serverSocket = ss
+                boundPort = candidate
+                running = true
+                log("bound on 127.0.0.1:$candidate (requested $port)")
+                Thread({
+                    while (running && !ss.isClosed) {
+                        try {
+                            val client = ss.accept()
+                            log("accept from ${client.remoteSocketAddress}")
+                            Thread({ handle(client) }, "ghost-http").apply { isDaemon = true }.start()
+                        } catch (e: Exception) {
+                            if (!running) break
+                            log("accept loop: ${e.javaClass.simpleName}: ${e.message}")
+                        }
+                    }
+                }, "ghost-accept").apply { isDaemon = true }.start()
+                return candidate
+            } catch (e: Exception) {
+                lastError = e
+                log("bind :$candidate failed: ${e.javaClass.simpleName}: ${e.message}")
             }
-        }, "ghost-accept").apply { isDaemon = true }.start()
-        return ss.localPort
+        }
+        throw IllegalStateException("No free loopback port in $port..${port + 20}: ${lastError?.message}")
     }
 
     fun stop() {
         running = false
         try { serverSocket?.close() } catch (_: Exception) {}
-        pool.shutdownNow()
+        log("stopped")
     }
 
     private fun handle(socket: Socket) {
@@ -52,6 +86,7 @@ class GhostServer(
             socket.soTimeout = 15_000
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
             val firstLine = reader.readLine() ?: return socket.close()
+            log("request: $firstLine")
             val parts = firstLine.split(" ")
             if (parts.size < 2) return socket.close()
             val method = parts[0].uppercase()
@@ -94,8 +129,12 @@ class GhostServer(
                 return
             }
             val resp = Router.dispatch(method, path, bodyJson, query)
+            if (isStatus) {
+                resp.body.put("port", boundPort).put("log", lastLog())
+            }
             writeJson(socket, resp.status, resp.body)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            log("handle error: ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString().take(400)}")
             try {
                 writeJson(socket, 500, com.ghostbroot.app.model.errorJson("internal_error", "Internal server error"))
             } catch (_: Exception) {}
@@ -117,8 +156,8 @@ class GhostServer(
         }
         val conn = WsConnection(socket)
         val upgrade = conn.handshake(headers, key)
-        val out = PrintWriter(socket.getOutputStream(), true)
-        out.print(upgrade)
+        val out = socket.getOutputStream()
+        out.write(upgrade.toByteArray(Charsets.US_ASCII))
         out.flush()
         EventBus.register(conn)
         Sessions.create()
@@ -159,10 +198,11 @@ class GhostServer(
             404 -> "Not Found"; 405 -> "Method Not Allowed"; 409 -> "Conflict"
             else -> "OK"
         }
-        PrintWriter(socket.getOutputStream(), true).use { w ->
-            w.print("HTTP/1.1 $status $reason\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")
-            w.print(text)
-            w.flush()
-        }
+        val head = "HTTP/1.1 $status $reason\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+            .toByteArray(Charsets.US_ASCII)
+        val out = socket.getOutputStream()
+        out.write(head)
+        out.write(bytes)
+        out.flush()
     }
 }

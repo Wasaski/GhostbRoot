@@ -68,18 +68,36 @@ class GhostService : Service() {
         EventBus.broadcast(type, payload)
     }
 
+    @Volatile var lastError: String? = null
+        private set
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopServer()
             stopSelf()
             return START_NOT_STICKY
         }
-        startForegroundNotification()
-        val token = intent?.getStringExtra(EXTRA_TOKEN) ?: TokenStore.get(this)
-        val port = intent?.getIntExtra(EXTRA_PORT, DEFAULT_PORT) ?: DEFAULT_PORT
-        if (server == null) {
-            server = GhostServer(port = port, token = token, onEvent = ::emit).also { it.start() }
-            EventBus.broadcast("server.started", JSONObject().put("port", port))
+        // Start the API first: a notification failure must never kill the server.
+        try {
+            val token = intent?.getStringExtra(EXTRA_TOKEN) ?: TokenStore.get(this)
+            val port = intent?.getIntExtra(EXTRA_PORT, DEFAULT_PORT) ?: DEFAULT_PORT
+            if (server == null) {
+                val bound = GhostServer(port = port, token = token, onEvent = ::emit)
+                bound.start()
+                server = bound
+                lastError = null
+                EventBus.broadcast("server.started", JSONObject().put("port", bound.boundPort))
+            }
+        } catch (e: Throwable) {
+            lastError = "${e.javaClass.simpleName}: ${e.message}"
+            try {
+                EventBus.broadcast("server.error", JSONObject().put("error", lastError))
+            } catch (_: Exception) {}
+        }
+        try {
+            startForegroundNotification()
+        } catch (e: Throwable) {
+            if (lastError == null) lastError = "notification: ${e.javaClass.simpleName}: ${e.message}"
         }
         // Re-render all panels after restart (e.g. system killed the service).
         runOnMain { Router.panels.values.forEach { panelManager.render(it, ::emit) } }
