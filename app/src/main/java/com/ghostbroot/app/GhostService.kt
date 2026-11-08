@@ -162,13 +162,17 @@ object TokenStore {
 
 /** Termux detection for the connection screen (spec §4) — best effort, no hard dependency. */
 object TermuxDetect {
-    fun isTermuxPresent(): Boolean {
-        val candidates = listOf(
-            "/data/data/com.termux",
-            "/data/data/com.termux.termux",
-            "/data/data/com.termux/files/usr/bin/bash"
-        )
-        return candidates.any { java.io.File(it).exists() }
+    /**
+     * Android sandboxing hides other apps' private paths, so detection goes
+     * through PackageManager (package names are visible device-wide).
+     */
+    fun isTermuxInstalled(context: android.content.Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo("com.termux", 0)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun termuxPath(): String = "/data/data/com.termux/files/usr/bin/python"

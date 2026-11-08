@@ -185,7 +185,7 @@ class MainActivity : AppCompatActivity() {
         val running = stateText.text.toString().contains("RUNNING")
         if (!running && !stateText.text.toString().contains("NOT responding"))
             stateText.text = "Server: ready to start (port $port)"
-        val termux = if (TermuxDetect.isTermuxPresent()) "detected" else "not detected on this device"
+        val termux = if (TermuxDetect.isTermuxInstalled(this)) "detected (com.termux)" else "not detected on this device"
         infoText.text = "host: 127.0.0.1\nport: $port\nauth: token required\ntermux: $termux\n" +
             "python: ${TermuxDetect.termuxPath()}"
         tokenText.text = "token: $token"
