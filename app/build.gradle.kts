@@ -50,13 +50,14 @@ android {
     }
 
     // Spec §7: multi-ABI, no native libraries required (pure Kotlin/Java).
-    // Splits produce one APK per ABI; a universal APK is not emitted.
+    // Splits produce one APK per ABI, plus a universal APK so any Android
+    // device can install without matching the filename to its ABI.
     splits {
         abi {
             isEnable = true
             reset()
             include("arm64-v8a", "armeabi-v7a")
-            isUniversalApk = false
+            isUniversalApk = true
         }
     }
 

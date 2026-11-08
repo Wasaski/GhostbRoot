@@ -20,7 +20,13 @@ server, no PC required.
 
 ### 1. Install the APK
 Download from the GitHub release (or the `ghostbroot-debug-apks` artifact
-of a workflow run). Open the app:
+of a workflow run). Artifacts are a **ZIP** — extract it first, then install
+the `.apk` file. Prefer the **universal** APK (`app-universal-debug.apk`):
+it installs on any Android device. The per-ABI files (`app-arm64-v8a-*.apk`
+for modern 64-bit phones, `app-armeabi-v7a-*.apk` for old 32-bit devices)
+are optional — installing the wrong ABI gives
+"package appears to be invalid", so when in doubt use the universal one.
+Open the app:
 
 - Tap **Start server** → note the host/port/token shown.
 - Tap **Allow display over other apps** and grant it.
