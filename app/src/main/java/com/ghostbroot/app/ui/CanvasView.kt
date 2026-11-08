@@ -61,7 +61,7 @@ class CanvasView(context: Context) : View(context) {
                     op.optDouble("x", 0.0).toFloat() * d + op.optDouble("width", 50.0).toFloat() * d,
                     op.optDouble("y", 0.0).toFloat() * d + op.optDouble("height", 50.0).toFloat() * d,
                     op.optDouble("startAngle", 0.0).toFloat(),
-                    op.optDouble("sweepAngle", 90.0).toFloat(), paint.style != Paint.Style.STROKE)
+                    op.optDouble("sweepAngle", 90.0).toFloat(), paint.style != Paint.Style.STROKE, paint)
             }
         }
     }

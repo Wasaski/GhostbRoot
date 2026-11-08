@@ -72,15 +72,15 @@ class GhostServer(
             val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
             var bodyJson: JSONObject? = null
             if (contentLength > 0) {
-                val bodyBytes = ByteArray(contentLength)
-                var off = 0
-                while (off < contentLength) {
-                    val n = reader.read(bodyBytes, off, contentLength - off)
-                    if (n < 0) break
-                    off += n
+                val text = StringBuilder()
+                var read = 0
+                while (read < contentLength) {
+                    val ch = reader.read()
+                    if (ch < 0) break
+                    text.append(ch.toChar())
+                    read++
                 }
-                val text = String(bodyBytes, 0, off, Charsets.UTF_8)
-                bodyJson = try { JSONObject(text) } catch (_: Exception) { null }
+                bodyJson = try { JSONObject(text.toString()) } catch (_: Exception) { null }
                 if (bodyJson == null && method in listOf("POST", "PATCH", "PUT") && text.isNotBlank()) {
                     writeJson(socket, 400, com.ghostbroot.app.model.errorJson("invalid_json", "Request body must be a JSON object"))
                     return

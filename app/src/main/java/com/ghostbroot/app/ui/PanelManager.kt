@@ -36,8 +36,7 @@ class PanelManager(private val context: Context) {
 
         val root = PanelView.panelContainer(context, panel.title, panel.widthDp, panel.heightDp)
         val body = root.findViewWithTag<View>("body") as LinearLayout
-        for (i in 0 until panel.components.length()) {
-            val comp = panel.components.optJSONObject(i) ?: continue
+        for (comp in panel.components) {
             body.addView(PanelView.buildComponent(context, comp, onEvent))
         }
 

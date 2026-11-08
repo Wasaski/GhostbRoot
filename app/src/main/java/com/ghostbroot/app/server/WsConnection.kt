@@ -56,7 +56,7 @@ class WsConnection(private val socket: Socket) {
         var len = b1 and 0x7F
         when (len) {
             126 -> { val hi = input.read(); val lo = input.read(); if (hi < 0 || lo < 0) return null; len = (hi shl 8) or lo }
-            127 -> { var v = 0L; repeat(8) { val b = input.read(); if (b < 0) return null; v = (v shl 8) or (b and 0xFFL) }; len = v.toInt() }
+            127 -> { var v = 0L; repeat(8) { val b = input.read(); if (b < 0) return null; v = (v shl 8) or (b.toLong() and 0xFFL) }; len = v.toInt() }
         }
         val mask = if (masked) ByteArray(4).also { input.read(it) } else null
         val payload = ByteArray(len)
