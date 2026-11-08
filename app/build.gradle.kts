@@ -36,6 +36,13 @@ android {
     // Spec §6: release signing ONLY via CI secrets (env). No keys in repo.
     // Without KEYSTORE_PATH the release build stays unsigned (CI build job);
     // release.yml refuses to publish in that state.
+    // v1+v2 signing keeps the APK installable on older OEM parsers too.
+    signingConfigs {
+        getByName("debug") {
+            v1SigningEnabled = true
+            v2SigningEnabled = true
+        }
+    }
     val hasSigning = !System.getenv("KEYSTORE_PATH").isNullOrBlank()
     if (hasSigning) {
         signingConfigs {
@@ -44,6 +51,8 @@ android {
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
+                v1SigningEnabled = true
+                v2SigningEnabled = true
             }
         }
         buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
