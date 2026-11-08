@@ -39,8 +39,8 @@ android {
     // v1+v2 signing keeps the APK installable on older OEM parsers too.
     signingConfigs {
         getByName("debug") {
-            v1SigningEnabled = true
-            v2SigningEnabled = true
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
     val hasSigning = !System.getenv("KEYSTORE_PATH").isNullOrBlank()
@@ -51,8 +51,8 @@ android {
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
-                v1SigningEnabled = true
-                v2SigningEnabled = true
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
         buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
